@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delivery Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-4">Delivery Management Dashboard</h1>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-blue-100 p-4 rounded-lg">
+                    <h3 class="text-lg font-semibold mb-2">Total Orders</h3>
+                    <p id="totalOrders" class="text-2xl font-bold text-blue-600">0</p>
+                </div>
+                <div class="bg-red-100 p-4 rounded-lg">
+                    <h3 class="text-lg font-semibold mb-2">Total RTO Issues</h3>
+                    <p id="totalRTO" class="text-2xl font-bold text-red-600">0</p>
+                </div>
+                <div class="bg-green-100 p-4 rounded-lg">
+                    <h3 class="text-lg font-semibold mb-2">Total Package Value</h3>
+                    <p id="totalValue" class="text-2xl font-bold text-green-600">₹0</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-bold mb-4">Courier Partner Distribution</h2>
+                <canvas id="courierChart"></canvas>
+            </div>
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-bold mb-4">Central Location Distribution</h2>
+                <canvas id="locationChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold">Order Details</h2>
+                <input type="text" id="searchInput" placeholder="Search orders..." class="p-2 border rounded-lg">
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full table-auto">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order NO</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">AWB</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Courier Partner</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="orderTableBody" class="bg-white divide-y divide-gray-200">
+                        <!-- Data will be populated here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let courierChart = null;
+        let locationChart = null;
+        let orderData = [];
+
+        // Fetch and parse CSV data
+        fetch('https://db.zetaverse.one/storage/v1/object/public/app-uploads/spreadsheet-1744258724227/HFxBRMqEbNYmX9pO3H3Na6wTz352/1exiohga.csv')
+            .then(response => response.text())
+            .then(data => {
+                Papa.parse(data, {
+                    header: true,
+                    complete: function(results) {
+                        orderData = results.data;
+                        updateDashboard();
+                        createCharts();
+                        populateTable();
+                    }
+                });
+            });
+
+        function updateDashboard() {
+            document.getElementById('totalOrders').textContent = orderData.length;
+            document.getElementById('totalRTO').textContent = orderData.filter(order => order.Issue?.includes('RTO')).length;
+            const totalValue = orderData.reduce((sum, order) => sum + (parseInt(order['Package Value']) || 0), 0);
+            document.getElementById('totalValue').textContent = '₹' + totalValue.toLocaleString();
+        }
+
+        function createCharts() {
+            // Courier Partner Chart
+            const courierCounts = {};
+            orderData.forEach(order => {
+                courierCounts[order.CourierPartner] = (courierCounts[order.CourierPartner] || 0) + 1;
+            });
+
+            if (courierChart) courierChart.destroy();
+            courierChart = new Chart(document.getElementById('courierChart'), {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(courierCounts),
+                    datasets: [{
+                        data: Object.values(courierCounts),
+                        backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56']
+                    }]
+                }
+            });
+
+            // Location Chart
+            const locationCounts = {};
+            orderData.forEach(order => {
+                locationCounts[order['Central location']] = (locationCounts[order['Central location']] || 0) + 1;
+            });
+
+            if (locationChart) locationChart.destroy();
+            locationChart = new Chart(document.getElementById('locationChart'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(locationCounts),
+                    datasets: [{
+                        label: 'Orders per Location',
+                        data: Object.values(locationCounts),
+                        backgroundColor: '#4CAF50'
+                    }]
+                }
+            });
+        }
+
+        function populateTable(searchTerm = '') {
+            const tableBody = document.getElementById('orderTableBody');
+            tableBody.innerHTML = '';
+
+            const filteredData = orderData.filter(order => 
+                Object.values(order).some(value => 
+                    value.toString().toLowerCase().includes(searchTerm.toLowerCase())
+                )
+            );
+
+            filteredData.forEach(order => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap">${order['Order NO']}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${order.AWB}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${order.CourierPartner}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${order['Email time stamp/updated Date']}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">₹${order['Package Value']}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            order.Issue?.includes('RTO') ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                        }">
+                            ${order.Issue?.includes('RTO') ? 'RTO Issue' : 'Normal'}
+                        </span>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Search functionality
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            populateTable(e.target.value);
+        });
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
